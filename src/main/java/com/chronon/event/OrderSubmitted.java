@@ -1,17 +1,13 @@
 package com.chronon.event;
 
-import java.math.BigDecimal;
+import com.chronon.order.Order;
+
 import java.time.Instant;
 
 public record OrderSubmitted(
         long sequence,
         Instant timestamp,
-        String orderId,
-        String symbol,
-        Side side,
-        int quantity,
-        OrderType orderType,
-        BigDecimal limitPrice
+        Order order
 ) implements Event {
 
     @Override
