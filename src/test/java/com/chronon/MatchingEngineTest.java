@@ -5,6 +5,7 @@ import com.chronon.bus.LiveEventPipeline;
 import com.chronon.event.Event;
 import com.chronon.event.OrderAccepted;
 import com.chronon.event.OrderFilled;
+import com.chronon.event.OrderPartiallyFilled;
 import com.chronon.event.OrderSubmitted;
 import com.chronon.event.PriceUpdate;
 import com.chronon.matching.MatchingEngine;
@@ -12,7 +13,6 @@ import com.chronon.order.OrderType;
 import com.chronon.order.Side;
 import com.chronon.store.InMemoryEventStore;
 import org.junit.jupiter.api.Test;
-
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -88,6 +88,101 @@ class MatchingEngineTest {
 
         assertEquals(
                 new BigDecimal("104.00"),
+                filled.fillPrice()
+        );
+    }
+
+    @Test
+    void largeMarketOrderIsPartiallyFilled() {
+
+        InMemoryEventStore store = new InMemoryEventStore();
+        EventBus bus = new EventBus();
+
+        LiveEventPipeline pipeline =
+                new LiveEventPipeline(store, bus);
+
+        MatchingEngine matchingEngine =
+                new MatchingEngine(pipeline);
+
+        bus.subscribe(matchingEngine);
+
+        PriceUpdate firstPrice =
+                new PriceUpdate(
+                        pipeline.nextSequence(),
+                        Instant.parse("2026-08-13T09:30:00Z"),
+                        "AAPL",
+                        new BigDecimal("104.00"),
+                        100
+                );
+
+        pipeline.publish(firstPrice);
+
+        OrderSubmitted order =
+                new OrderSubmitted(
+                        pipeline.nextSequence(),
+                        firstPrice.timestamp(),
+                        "ORD-002",
+                        "AAPL",
+                        Side.BUY,
+                        250,
+                        OrderType.MARKET,
+                        null
+                );
+
+        pipeline.publish(order);
+
+        List<Event> firstEvents = store.getAll();
+
+        assertEquals(4, firstEvents.size());
+
+        OrderPartiallyFilled partial =
+                (OrderPartiallyFilled) firstEvents.get(3);
+
+        assertEquals(
+                "ORD-002",
+                partial.orderId()
+        );
+
+        assertEquals(
+                100,
+                partial.filledQuantity()
+        );
+
+        assertEquals(
+                new BigDecimal("104.00"),
+                partial.fillPrice()
+        );
+
+        PriceUpdate secondPrice =
+                new PriceUpdate(
+                        pipeline.nextSequence(),
+                        Instant.parse("2026-08-13T09:30:01Z"),
+                        "AAPL",
+                        new BigDecimal("105.00"),
+                        150
+                );
+
+        pipeline.publish(secondPrice);
+
+        List<Event> events = store.getAll();
+
+        assertEquals(6, events.size());
+
+        OrderFilled filled =
+                (OrderFilled) events.get(5);
+
+        assertEquals(
+                "ORD-002",
+                filled.orderId()
+        );
+
+        assertEquals(
+                150,
+                filled.filledQuantity()
+        );
+
+        assertEquals(
+                new BigDecimal("105.00"),
                 filled.fillPrice()
         );
     }
