@@ -186,4 +186,98 @@ class MatchingEngineTest {
                 filled.fillPrice()
         );
     }
+    @Test
+void multipleOrdersAreMatchedInFifoOrder() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus bus = new EventBus();
+
+    LiveEventPipeline pipeline =
+            new LiveEventPipeline(store, bus);
+
+    MatchingEngine matchingEngine =
+            new MatchingEngine(pipeline);
+
+    bus.subscribe(matchingEngine);
+
+    PriceUpdate price =
+            new PriceUpdate(
+                    pipeline.nextSequence(),
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "AAPL",
+                    new BigDecimal("104.00"),
+                    100
+            );
+
+    pipeline.publish(price);
+
+    OrderSubmitted firstOrder =
+            new OrderSubmitted(
+                    pipeline.nextSequence(),
+                    price.timestamp(),
+                    "ORD-001",
+                    "AAPL",
+                    Side.BUY,
+                    60,
+                    OrderType.MARKET,
+                    null
+            );
+
+    pipeline.publish(firstOrder);
+
+    OrderSubmitted secondOrder =
+            new OrderSubmitted(
+                    pipeline.nextSequence(),
+                    price.timestamp(),
+                    "ORD-002",
+                    "AAPL",
+                    Side.BUY,
+                    80,
+                    OrderType.MARKET,
+                    null
+            );
+
+    pipeline.publish(secondOrder);
+
+    List<Event> events = store.getAll();
+
+    OrderFilled firstFilled = null;
+    OrderPartiallyFilled secondPartial = null;
+
+    for (Event event : events) {
+
+        if (event instanceof OrderFilled filled
+                && filled.orderId().equals("ORD-001")) {
+            firstFilled = filled;
+        }
+
+        if (event instanceof OrderPartiallyFilled partial
+                && partial.orderId().equals("ORD-002")) {
+            secondPartial = partial;
+        }
+    }
+
+    assertNotNull(firstFilled);
+    assertNotNull(secondPartial);
+
+    assertEquals(
+            60,
+            firstFilled.filledQuantity()
+    );
+
+    assertEquals(
+            40,
+            secondPartial.filledQuantity()
+    );
+
+    assertEquals(
+            new BigDecimal("104.00"),
+            firstFilled.fillPrice()
+    );
+
+    assertEquals(
+            new BigDecimal("104.00"),
+            secondPartial.fillPrice()
+    );
+}
 }

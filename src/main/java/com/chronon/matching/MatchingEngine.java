@@ -12,19 +12,22 @@ import com.chronon.order.OrderType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Queue;
 
 public class MatchingEngine implements EventListener {
 
     private final LiveEventPipeline pipeline;
 
-    private final Map<String, PendingOrder> pendingOrders =
+    private final Map<String, Queue<PendingOrder>> pendingOrders =
             new HashMap<>();
 
     private BigDecimal latestPrice;
     private Instant latestTimestamp;
-    private int latestVolume;
+    private String latestSymbol;
+    private int availableVolume;
 
     public MatchingEngine(LiveEventPipeline pipeline) {
         this.pipeline = pipeline;
@@ -37,9 +40,10 @@ public class MatchingEngine implements EventListener {
 
             latestPrice = priceUpdate.price();
             latestTimestamp = priceUpdate.timestamp();
-            latestVolume = priceUpdate.volume();
+            latestSymbol = priceUpdate.symbol();
+            availableVolume = priceUpdate.volume();
 
-            matchPendingOrders(priceUpdate);
+            matchPendingOrders(priceUpdate.symbol());
 
             return;
         }
@@ -52,10 +56,6 @@ public class MatchingEngine implements EventListener {
             return;
         }
 
-        if (latestPrice == null || latestVolume <= 0) {
-            return;
-        }
-
         pipeline.publish(
                 new OrderAccepted(
                         pipeline.nextSequence(),
@@ -64,93 +64,82 @@ public class MatchingEngine implements EventListener {
                 )
         );
 
-        PendingOrder pendingOrder =
+        Queue<PendingOrder> ordersForSymbol =
+                pendingOrders.computeIfAbsent(
+                        order.symbol(),
+                        key -> new ArrayDeque<>()
+                );
+
+        ordersForSymbol.add(
                 new PendingOrder(
                         order.orderId(),
                         order.symbol(),
                         order.quantity()
-                );
-
-        pendingOrders.put(
-                order.orderId(),
-                pendingOrder
+                )
         );
 
-        matchOrder(
-                pendingOrder,
-                latestPrice,
-                latestTimestamp,
-                latestVolume
-        );
+        if (order.symbol().equals(latestSymbol)
+                && latestPrice != null
+                && availableVolume > 0) {
+
+            matchPendingOrders(order.symbol());
+        }
     }
 
-    private void matchPendingOrders(PriceUpdate priceUpdate) {
+    private void matchPendingOrders(String symbol) {
 
-        if (priceUpdate.volume() <= 0) {
+        Queue<PendingOrder> orders =
+                pendingOrders.get(symbol);
+
+        if (orders == null || orders.isEmpty()) {
             return;
         }
 
-        for (PendingOrder order :
-                pendingOrders.values().toArray(new PendingOrder[0])) {
+        while (!orders.isEmpty() && availableVolume > 0) {
 
-            if (!order.symbol().equals(priceUpdate.symbol())) {
-                continue;
+            PendingOrder order = orders.peek();
+
+            int fillQuantity =
+                    Math.min(
+                            order.remainingQuantity(),
+                            availableVolume
+                    );
+
+            order.reduce(fillQuantity);
+            availableVolume -= fillQuantity;
+
+            if (order.remainingQuantity() == 0) {
+
+                pipeline.publish(
+                        new OrderFilled(
+                                pipeline.nextSequence(),
+                                latestTimestamp,
+                                order.orderId(),
+                                fillQuantity,
+                                latestPrice
+                        )
+                );
+
+                orders.remove();
+
+            } else {
+
+                pipeline.publish(
+                        new OrderPartiallyFilled(
+                                pipeline.nextSequence(),
+                                latestTimestamp,
+                                order.orderId(),
+                                fillQuantity,
+                                latestPrice
+                        )
+                );
+
+                break;
             }
-
-            matchOrder(
-                    order,
-                    priceUpdate.price(),
-                    priceUpdate.timestamp(),
-                    priceUpdate.volume()
-            );
-        }
-    }
-
-    private void matchOrder(
-            PendingOrder order,
-            BigDecimal price,
-            Instant timestamp,
-            int availableVolume
-    ) {
-
-        if (order.remainingQuantity() <= 0) {
-            pendingOrders.remove(order.orderId());
-            return;
         }
 
-        int fillQuantity =
-                Math.min(
-                        order.remainingQuantity(),
-                        availableVolume
-                );
-
-        order.reduce(fillQuantity);
-
-        if (order.remainingQuantity() == 0) {
-
-            pipeline.publish(
-                    new OrderFilled(
-                            pipeline.nextSequence(),
-                            timestamp,
-                            order.orderId(),
-                            fillQuantity,
-                            price
-                    )
-            );
-
-            pendingOrders.remove(order.orderId());
-
-        } else {
-
-            pipeline.publish(
-                    new OrderPartiallyFilled(
-                            pipeline.nextSequence(),
-                            timestamp,
-                            order.orderId(),
-                            fillQuantity,
-                            price
-                    )
-            );
+        if (orders.isEmpty()) {
+            pendingOrders.remove(symbol);
         }
     }
 
@@ -172,10 +161,6 @@ public class MatchingEngine implements EventListener {
 
         private String orderId() {
             return orderId;
-        }
-
-        private String symbol() {
-            return symbol;
         }
 
         private int remainingQuantity() {
