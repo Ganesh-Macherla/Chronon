@@ -10,6 +10,7 @@ import com.chronon.order.OrderStateProjector;
 import com.chronon.order.OrderStatus;
 import com.chronon.order.OrderType;
 import com.chronon.order.Side;
+import com.chronon.order.OrderStateReducer;
 import com.chronon.bus.EventBus;
 import com.chronon.bus.EventListener;
 import com.chronon.bus.LiveEventPipeline;
@@ -22,6 +23,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -281,6 +283,94 @@ void replayRangeRejectsInvalidRange() {
                     2,
                     event -> {}
             )
+    );
+}
+
+@Test
+void reconstructBuildsOrderStateWithoutLivePipeline() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    Instant time =
+            Instant.parse("2026-08-13T09:30:00Z");
+
+    store.append(
+            new OrderSubmitted(
+                    1,
+                    time,
+                    "ORD-001",
+                    "AAPL",
+                    Side.BUY,
+                    100,
+                    OrderType.MARKET,
+                    null
+            )
+    );
+
+    store.append(
+            new OrderAccepted(
+                    2,
+                    time,
+                    "ORD-001"
+            )
+    );
+
+    store.append(
+            new OrderPartiallyFilled(
+                    3,
+                    time,
+                    "ORD-001",
+                    40,
+                    new BigDecimal("100.00")
+            )
+    );
+
+    store.append(
+            new OrderFilled(
+                    4,
+                    time,
+                    "ORD-001",
+                    60,
+                    new BigDecimal("110.00")
+            )
+    );
+
+    ReplayEngine replayEngine =
+            new ReplayEngine(store);
+
+    OrderStateReducer reducer =
+            new OrderStateReducer();
+
+    Map<String, OrderState> states =
+            replayEngine.reconstruct(
+                    Map.of(),
+                    reducer
+            );
+
+    OrderState state =
+            states.get("ORD-001");
+
+    assertNotNull(state);
+
+    assertEquals(
+            OrderStatus.FILLED,
+            state.status()
+    );
+
+    assertEquals(
+            100,
+            state.filledQuantity()
+    );
+
+    assertEquals(
+            0,
+            state.remainingQuantity()
+    );
+
+    assertEquals(
+            new BigDecimal("106.00000000"),
+            state.averageFillPrice()
     );
 }
 }

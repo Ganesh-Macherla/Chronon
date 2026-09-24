@@ -53,4 +53,52 @@ public class ReplayEngine {
             listener.onEvent(event);
         }
     }
+
+    public <S> S reconstruct(
+            S initialState,
+            StateReducer<S> reducer
+    ) {
+        if (reducer == null) {
+            throw new IllegalArgumentException(
+                    "State reducer cannot be null"
+            );
+        }
+
+        S state = initialState;
+
+        for (Event event : eventStore.getAll()) {
+            state = reducer.apply(state, event);
+        }
+
+        return state;
+    }
+
+    public <S> S reconstructRange(
+            long fromSequence,
+            long toSequence,
+            S initialState,
+            StateReducer<S> reducer
+    ) {
+        if (reducer == null) {
+            throw new IllegalArgumentException(
+                    "State reducer cannot be null"
+            );
+        }
+
+        if (fromSequence > toSequence) {
+            throw new IllegalArgumentException(
+                    "From sequence cannot be greater than to sequence"
+            );
+        }
+
+        S state = initialState;
+
+        for (Event event :
+                eventStore.getRange(fromSequence, toSequence)) {
+
+            state = reducer.apply(state, event);
+        }
+
+        return state;
+    }
 }
