@@ -1,5 +1,6 @@
 package com.chronon;
 
+import com.chronon.event.Event;
 import com.chronon.event.OrderAccepted;
 import com.chronon.event.OrderFilled;
 import com.chronon.event.OrderPartiallyFilled;
@@ -9,7 +10,9 @@ import com.chronon.order.OrderStateProjector;
 import com.chronon.order.OrderStatus;
 import com.chronon.order.OrderType;
 import com.chronon.order.Side;
+import com.chronon.bus.EventBus;
 import com.chronon.bus.EventListener;
+import com.chronon.bus.LiveEventPipeline;
 import com.chronon.event.PriceUpdate;
 import com.chronon.replay.ReplayEngine;
 import com.chronon.store.InMemoryEventStore;
@@ -204,6 +207,80 @@ void replayReconstructsFinalOrderState() {
     assertEquals(
             new BigDecimal("106.00000000"),
             state.averageFillPrice()
+    );
+}
+
+@Test
+void replayRangeReplaysOnlyEventsInsideRange() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus bus = new EventBus();
+
+    LiveEventPipeline pipeline =
+            new LiveEventPipeline(store, bus);
+
+    List<Event> received = new ArrayList<>();
+
+    pipeline.publish(
+            new PriceUpdate(
+                    pipeline.nextSequence(),
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "AAPL",
+                    new BigDecimal("104.00"),
+                    100
+            )
+    );
+
+    pipeline.publish(
+            new PriceUpdate(
+                    pipeline.nextSequence(),
+                    Instant.parse("2026-08-13T09:31:00Z"),
+                    "AAPL",
+                    new BigDecimal("105.00"),
+                    150
+            )
+    );
+
+    pipeline.publish(
+            new PriceUpdate(
+                    pipeline.nextSequence(),
+                    Instant.parse("2026-08-13T09:32:00Z"),
+                    "AAPL",
+                    new BigDecimal("106.00"),
+                    200
+            )
+    );
+
+    ReplayEngine replayEngine =
+            new ReplayEngine(store);
+
+    replayEngine.replayRange(
+            2,
+            3,
+            received::add
+    );
+
+    assertEquals(2, received.size());
+    assertEquals(2, received.get(0).sequence());
+    assertEquals(3, received.get(1).sequence());
+}
+
+@Test
+void replayRangeRejectsInvalidRange() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    ReplayEngine replayEngine =
+            new ReplayEngine(store);
+
+    assertThrows(
+            IllegalArgumentException.class,
+            () -> replayEngine.replayRange(
+                    5,
+                    2,
+                    event -> {}
+            )
     );
 }
 }

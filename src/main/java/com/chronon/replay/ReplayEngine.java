@@ -13,7 +13,7 @@ public class ReplayEngine {
             throw new IllegalArgumentException(
                     "Event store cannot be null"
             );
-        } // ReplayEngine cannot function without an EventStore
+        }
 
         this.eventStore = eventStore;
     }
@@ -26,6 +26,30 @@ public class ReplayEngine {
         }
 
         for (Event event : eventStore.getAll()) {
+            listener.onEvent(event);
+        }
+    }
+
+    public void replayRange(
+            long fromSequence,
+            long toSequence,
+            EventListener listener
+    ) {
+        if (listener == null) {
+            throw new IllegalArgumentException(
+                    "Listener cannot be null"
+            );
+        }
+
+        if (fromSequence > toSequence) {
+            throw new IllegalArgumentException(
+                    "From sequence cannot be greater than to sequence"
+            );
+        }
+
+        for (Event event :
+                eventStore.getRange(fromSequence, toSequence)) {
+
             listener.onEvent(event);
         }
     }
