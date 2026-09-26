@@ -1,141 +1,183 @@
 package com.chronon;
 
-import com.chronon.event.Event;
+import com.chronon.clock.VirtualClock;
 import com.chronon.event.PriceUpdate;
 import com.chronon.replay.ReplayController;
+import com.chronon.replay.ReplayEngine;
 import com.chronon.store.InMemoryEventStore;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class ReplayControllerTest {
 
     @Test
-    void controllerStepsThroughEventsInOrder() {
-
-        InMemoryEventStore store = new InMemoryEventStore();
-
-        store.append(price(1, "100"));
-        store.append(price(2, "101"));
-        store.append(price(3, "102"));
-
-        ReplayController controller =
-                new ReplayController(store);
-
-        assertTrue(controller.hasNext());
-        assertFalse(controller.isFinished());
-        assertEquals(0, controller.currentIndex());
-        assertEquals(-1, controller.currentSequence());
-
-        Event first = controller.step();
-
-        assertEquals(1, first.sequence());
-        assertEquals(1, controller.currentIndex());
-        assertEquals(1, controller.currentSequence());
-
-        Event second = controller.step();
-
-        assertEquals(2, second.sequence());
-        assertEquals(2, controller.currentIndex());
-        assertEquals(2, controller.currentSequence());
-
-        Event third = controller.step();
-
-        assertEquals(3, third.sequence());
-        assertEquals(3, controller.currentIndex());
-        assertEquals(3, controller.currentSequence());
-
-        assertFalse(controller.hasNext());
-        assertTrue(controller.isFinished());
-    }
-
-    @Test
-    void controllerCanBeReset() {
-
-        InMemoryEventStore store = new InMemoryEventStore();
-
-        store.append(price(1, "100"));
-        store.append(price(2, "101"));
-
-        ReplayController controller =
-                new ReplayController(store);
-
-        controller.step();
-        controller.step();
-
-        assertTrue(controller.isFinished());
-
-        controller.reset();
-
-        assertEquals(0, controller.currentIndex());
-        assertEquals(-1, controller.currentSequence());
-        assertTrue(controller.hasNext());
-        assertFalse(controller.isFinished());
-
-        assertEquals(1, controller.step().sequence());
-    }
-
-    @Test
-    void stepAfterEndThrowsException() {
-
-        InMemoryEventStore store = new InMemoryEventStore();
-
-        store.append(price(1, "100"));
-
-        ReplayController controller =
-                new ReplayController(store);
-
-        controller.step();
-
-        assertThrows(
-                IllegalStateException.class,
-                controller::step
-        );
-    }
-
-    @Test
-    void nullEventStoreIsRejected() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new ReplayController(null)
-        );
-    }
-
-    @Test
-    void emptyStoreStartsFinished() {
+    void stepAdvancesClockAndDispatchesOneEvent() {
 
         InMemoryEventStore store =
                 new InMemoryEventStore();
 
+        PriceUpdate first =
+                new PriceUpdate(
+                        1,
+                        Instant.parse("2026-08-13T09:30:00Z"),
+                        "AAPL",
+                        new BigDecimal("100.00"),
+                        100
+                );
+
+        PriceUpdate second =
+                new PriceUpdate(
+                        2,
+                        Instant.parse("2026-08-13T09:31:00Z"),
+                        "AAPL",
+                        new BigDecimal("101.00"),
+                        100
+                );
+
+        store.append(first);
+        store.append(second);
+
+        VirtualClock clock =
+                new VirtualClock(
+                        Instant.parse("2026-08-13T09:29:00Z")
+                );
+
         ReplayController controller =
-                new ReplayController(store);
+                new ReplayController(
+                        new ReplayEngine(store),
+                        clock,
+                        store.getAll()
+                );
 
-        assertFalse(controller.hasNext());
-        assertTrue(controller.isFinished());
+        List<Long> received =
+                new ArrayList<>();
+
+        controller.step(
+                event -> received.add(event.sequence())
+        );
+
+        assertEquals(
+                List.of(1L),
+                received
+        );
+
+        assertEquals(
+                first.timestamp(),
+                clock.now()
+        );
+
+        assertEquals(
+                1,
+                controller.currentIndex()
+        );
+
+        assertTrue(controller.hasNext());
+    }
+
+    @Test
+    void resetReturnsControllerToBeginning() {
+
+        InMemoryEventStore store =
+                new InMemoryEventStore();
+
+        store.append(
+                new PriceUpdate(
+                        1,
+                        Instant.parse("2026-08-13T09:30:00Z"),
+                        "AAPL",
+                        new BigDecimal("100.00"),
+                        100
+                )
+        );
+
+        VirtualClock clock =
+                new VirtualClock(
+                        Instant.parse("2026-08-13T09:29:00Z")
+                );
+
+        ReplayController controller =
+                new ReplayController(
+                        new ReplayEngine(store),
+                        clock,
+                        store.getAll()
+                );
+
+        controller.step(event -> {});
+
+        assertEquals(1, controller.currentIndex());
+
+        controller.reset();
+
         assertEquals(0, controller.currentIndex());
-        assertEquals(-1, controller.currentSequence());
-
-        assertThrows(
-                IllegalStateException.class,
-                controller::step
-        );
+        assertTrue(controller.hasNext());
     }
 
-    private PriceUpdate price(
-            long sequence,
-            String price
-    ) {
-        return new PriceUpdate(
-                sequence,
-                Instant.parse("2026-08-13T09:30:00Z")
-                        .plusSeconds(sequence),
-                "AAPL",
-                new BigDecimal(price),
-                100
-        );
-    }
+    @Test
+void startReplaysAllEvents() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    store.append(
+            new PriceUpdate(
+                    1,
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "AAPL",
+                    new BigDecimal("100.00"),
+                    100
+            )
+    );
+
+    store.append(
+            new PriceUpdate(
+                    2,
+                    Instant.parse("2026-08-13T09:31:00Z"),
+                    "AAPL",
+                    new BigDecimal("101.00"),
+                    100
+            )
+    );
+
+    VirtualClock clock =
+            new VirtualClock(
+                    Instant.parse("2026-08-13T09:29:00Z")
+            );
+
+    ReplayController controller =
+            new ReplayController(
+                    new ReplayEngine(store),
+                    clock,
+                    store.getAll()
+            );
+
+    List<Long> received =
+            new ArrayList<>();
+
+    controller.start(
+            event -> received.add(event.sequence())
+    );
+
+    assertEquals(
+            List.of(1L, 2L),
+            received
+    );
+
+    assertEquals(
+            2,
+            controller.currentIndex()
+    );
+
+    assertFalse(controller.hasNext());
+
+    assertEquals(
+            Instant.parse("2026-08-13T09:31:00Z"),
+            clock.now()
+    );
+}
 }

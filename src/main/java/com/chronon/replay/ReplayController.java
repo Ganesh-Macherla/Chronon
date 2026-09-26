@@ -1,23 +1,45 @@
 package com.chronon.replay;
 
+import com.chronon.bus.EventListener;
+import com.chronon.clock.VirtualClock;
 import com.chronon.event.Event;
-import com.chronon.store.EventStore;
 
 import java.util.List;
 
 public class ReplayController {
 
+    private final ReplayEngine replayEngine;
+    private final VirtualClock clock;
     private final List<Event> events;
+
     private int currentIndex;
 
-    public ReplayController(EventStore eventStore) {
-        if (eventStore == null) {
+    public ReplayController(
+            ReplayEngine replayEngine,
+            VirtualClock clock,
+            List<Event> events
+    ) {
+        if (replayEngine == null) {
             throw new IllegalArgumentException(
-                    "Event store cannot be null"
+                    "Replay engine cannot be null"
             );
         }
 
-        this.events = eventStore.getAll();
+        if (clock == null) {
+            throw new IllegalArgumentException(
+                    "Virtual clock cannot be null"
+            );
+        }
+
+        if (events == null) {
+            throw new IllegalArgumentException(
+                    "Events cannot be null"
+            );
+        }
+
+        this.replayEngine = replayEngine;
+        this.clock = clock;
+        this.events = List.copyOf(events);
         this.currentIndex = 0;
     }
 
@@ -25,14 +47,38 @@ public class ReplayController {
         return currentIndex < events.size();
     }
 
-    public Event step() {
-        if (!hasNext()) {
-            throw new IllegalStateException(
-                    "No more events to replay"
+    public void step(EventListener listener) {
+
+        if (listener == null) {
+            throw new IllegalArgumentException(
+                    "Listener cannot be null"
             );
         }
 
-        return events.get(currentIndex++);
+        if (!hasNext()) {
+            return;
+        }
+
+        Event event = events.get(currentIndex);
+
+        clock.advanceTo(event.timestamp());
+
+        listener.onEvent(event);
+
+        currentIndex++;
+    }
+
+    public void start(EventListener listener) {
+
+        if (listener == null) {
+            throw new IllegalArgumentException(
+                    "Listener cannot be null"
+            );
+        }
+
+        while (hasNext()) {
+            step(listener);
+        }
     }
 
     public void reset() {
@@ -41,17 +87,5 @@ public class ReplayController {
 
     public int currentIndex() {
         return currentIndex;
-    }
-
-    public long currentSequence() {
-        if (currentIndex == 0) {
-            return -1;
-        }
-
-        return events.get(currentIndex - 1).sequence();
-    }
-
-    public boolean isFinished() {
-        return !hasNext();
     }
 }
