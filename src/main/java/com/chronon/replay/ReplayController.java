@@ -13,6 +13,7 @@ public class ReplayController {
     private final List<Event> events;
 
     private int currentIndex;
+    private boolean paused;
 
     public ReplayController(
             ReplayEngine replayEngine,
@@ -76,9 +77,18 @@ public class ReplayController {
             );
         }
 
-        while (hasNext()) {
+        while (hasNext() && !paused) {
             step(listener);
         }
+    }
+
+        public void pause() {
+        paused = true;
+
+    }
+    
+    public void resume() {
+        paused = false;
     }
 
     public void reset() {
@@ -88,4 +98,5 @@ public class ReplayController {
     public int currentIndex() {
         return currentIndex;
     }
+
 }

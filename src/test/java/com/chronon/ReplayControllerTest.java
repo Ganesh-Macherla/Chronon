@@ -180,4 +180,127 @@ void startReplaysAllEvents() {
             clock.now()
     );
 }
+
+@Test
+void pauseStopsReplayAndResumeContinues() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    store.append(
+            new PriceUpdate(
+                    1,
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "AAPL",
+                    new BigDecimal("100.00"),
+                    100
+            )
+    );
+
+    store.append(
+            new PriceUpdate(
+                    2,
+                    Instant.parse("2026-08-13T09:31:00Z"),
+                    "AAPL",
+                    new BigDecimal("101.00"),
+                    100
+            )
+    );
+
+    VirtualClock clock =
+            new VirtualClock(
+                    Instant.parse("2026-08-13T09:29:00Z")
+            );
+
+    ReplayController controller =
+            new ReplayController(
+                    new ReplayEngine(store),
+                    clock,
+                    store.getAll()
+            );
+
+    List<Long> received =
+            new ArrayList<>();
+
+    controller.step(
+            event -> received.add(event.sequence())
+    );
+
+    assertEquals(
+            List.of(1L),
+            received
+    );
+
+    assertEquals(
+            1,
+            controller.currentIndex()
+    );
+
+    controller.pause();
+
+    controller.start(
+            event -> received.add(event.sequence())
+    );
+
+    assertEquals(
+            List.of(1L),
+            received
+    );
+
+    assertEquals(
+            1,
+            controller.currentIndex()
+    );
+
+    controller.resume();
+
+    controller.start(
+            event -> received.add(event.sequence())
+    );
+
+    assertEquals(
+            List.of(1L, 2L),
+            received
+    );
+
+    assertEquals(
+            2,
+            controller.currentIndex()
+    );
+}
+
+@Test
+void resumeDoesNotAdvanceReplayByItself() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    store.append(
+            new PriceUpdate(
+                    1,
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "AAPL",
+                    new BigDecimal("100.00"),
+                    100
+            )
+    );
+
+    VirtualClock clock =
+            new VirtualClock(
+                    Instant.parse("2026-08-13T09:29:00Z")
+            );
+
+    ReplayController controller =
+            new ReplayController(
+                    new ReplayEngine(store),
+                    clock,
+                    store.getAll()
+            );
+
+    controller.pause();
+    controller.resume();
+
+    assertEquals(0, controller.currentIndex());
+    assertTrue(controller.hasNext());
+}
 }
