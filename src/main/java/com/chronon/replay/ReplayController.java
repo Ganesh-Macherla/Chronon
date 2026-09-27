@@ -14,6 +14,7 @@ public class ReplayController {
 
     private int currentIndex;
     private boolean paused;
+    private ReplayStatus status;
 
     public ReplayController(
             ReplayEngine replayEngine,
@@ -42,6 +43,8 @@ public class ReplayController {
         this.clock = clock;
         this.events = List.copyOf(events);
         this.currentIndex = 0;
+        this.paused = false;
+        this.status = ReplayStatus.READY;
     }
 
     public boolean hasNext() {
@@ -77,18 +80,28 @@ public class ReplayController {
             );
         }
 
+        status = ReplayStatus.RUNNING;
+
         while (hasNext() && !paused) {
             step(listener);
         }
-    }
+
+        if (!hasNext()) {
+            status = ReplayStatus.COMPLETED;
+        }
+    }    
 
         public void pause() {
         paused = true;
+        status = ReplayStatus.PAUSED;
 
     }
     
     public void resume() {
         paused = false;
+        if (hasNext()) {
+            status = ReplayStatus.RUNNING;
+        }
     }
 
     public void reset() {
@@ -97,6 +110,10 @@ public class ReplayController {
 
     public int currentIndex() {
         return currentIndex;
+    }
+
+    public ReplayStatus status() {
+        return status;
     }
 
 }
