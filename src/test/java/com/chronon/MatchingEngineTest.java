@@ -280,4 +280,41 @@ void multipleOrdersAreMatchedInFifoOrder() {
             secondPartial.fillPrice()
     );
 }
+// submit a market order when there has been no price update -> order should not be filled
+@Test
+void marketOrderWaitsUntilPriceExists() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+
+    EventBus bus = new EventBus();
+
+    LiveEventPipeline pipeline = new LiveEventPipeline(store, bus);
+
+    MatchingEngine matchingEngine = new MatchingEngine(pipeline);
+
+    bus.subscribe(matchingEngine);
+
+    OrderSubmitted order =
+            new OrderSubmitted(
+                    pipeline.nextSequence(),
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "ORD-001",
+                    "AAPL",
+                    Side.BUY,
+                    100,
+                    OrderType.MARKET,
+                    null
+            );
+
+    pipeline.publish(order);
+
+    List<Event> events = store.getAll();
+
+    System.out.println(events);
+    assertEquals(2, events.size());
+
+    assertTrue(
+            events.get(0) instanceof OrderSubmitted
+    );
+}
 }

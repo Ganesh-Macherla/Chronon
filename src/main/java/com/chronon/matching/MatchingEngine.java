@@ -56,6 +56,7 @@ public class MatchingEngine implements EventListener {
             return;
         }
 
+        // accept the order even if there is currently no price.
         pipeline.publish(
                 new OrderAccepted(
                         pipeline.nextSequence(),
@@ -78,6 +79,8 @@ public class MatchingEngine implements EventListener {
                 )
         );
 
+        // if a price already exists for this symbol
+        // attempt an immediate match.
         if (order.symbol().equals(latestSymbol)
                 && latestPrice != null
                 && availableVolume > 0) {
@@ -161,6 +164,10 @@ public class MatchingEngine implements EventListener {
 
         private String orderId() {
             return orderId;
+        }
+
+        private String symbol() {
+            return symbol;
         }
 
         private int remainingQuantity() {
