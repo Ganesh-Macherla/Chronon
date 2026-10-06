@@ -463,4 +463,79 @@ void reconstructRangeBuildsStateAtSpecificPointInHistory() {
             state.averageFillPrice()
     );
 }
+
+@Test
+void replayProducesDeterministicResult() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    Instant time =
+            Instant.parse("2026-08-13T09:30:00Z");
+
+    store.append(
+            new OrderSubmitted(
+                    1,
+                    time,
+                    "ORD-001",
+                    "AAPL",
+                    Side.BUY,
+                    100,
+                    OrderType.MARKET,
+                    null
+            )
+    );
+
+    store.append(
+            new OrderAccepted(
+                    2,
+                    time,
+                    "ORD-001"
+            )
+    );
+
+    store.append(
+            new OrderPartiallyFilled(
+                    3,
+                    time,
+                    "ORD-001",
+                    40,
+                    new BigDecimal("100.00")
+            )
+    );
+
+    store.append(
+            new OrderFilled(
+                    4,
+                    time,
+                    "ORD-001",
+                    60,
+                    new BigDecimal("110.00")
+            )
+    );
+
+    ReplayEngine replayEngine =
+            new ReplayEngine(store);
+
+    OrderStateProjector firstProjector =
+            new OrderStateProjector();
+
+    OrderStateProjector secondProjector =
+            new OrderStateProjector();
+
+    replayEngine.replay(firstProjector);
+    replayEngine.replay(secondProjector);
+
+    OrderState firstState =
+            firstProjector.getState("ORD-001");
+
+    OrderState secondState =
+            secondProjector.getState("ORD-001");
+
+    assertEquals(
+            firstState,
+            secondState
+    );
+}
+
 }
