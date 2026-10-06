@@ -490,19 +490,14 @@ void replayProducesDeterministicResult() {
             new OrderAccepted(
                     2,
                     time,
-                    "ORD-001"
-            )
-    );
+                    "ORD-001"));
 
-    store.append(
-            new OrderPartiallyFilled(
+    store.append(new OrderPartiallyFilled(
                     3,
                     time,
                     "ORD-001",
                     40,
-                    new BigDecimal("100.00")
-            )
-    );
+                    new BigDecimal("100.00")));
 
     store.append(
             new OrderFilled(
@@ -532,10 +527,7 @@ void replayProducesDeterministicResult() {
     OrderState secondState =
             secondProjector.getState("ORD-001");
 
-    assertEquals(
-            firstState,
-            secondState
-    );
+    assertEquals(firstState, secondState);
 }
 
 }

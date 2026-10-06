@@ -8,8 +8,15 @@ public record PriceUpdate(
         Instant timestamp,
         String symbol,
         BigDecimal price,
-        int volume
-) implements Event {
+        int volume) implements Event {
+
+    public PriceUpdate {
+        if (volume < 0) {
+            throw new IllegalArgumentException(
+                    "Price update volume cannot be negative"
+            );
+        }
+    }
 
     @Override
     public EventType type() {

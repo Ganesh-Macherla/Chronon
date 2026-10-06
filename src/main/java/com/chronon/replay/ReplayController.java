@@ -7,8 +7,6 @@ import com.chronon.event.Event;
 import java.util.List;
 
 public class ReplayController {
-
-    private final ReplayEngine replayEngine;
     private final VirtualClock clock;
     private final List<Event> events;
 
@@ -16,16 +14,7 @@ public class ReplayController {
     private boolean paused;
     private ReplayStatus status;
 
-    public ReplayController(
-            ReplayEngine replayEngine,
-            VirtualClock clock,
-            List<Event> events
-    ) {
-        if (replayEngine == null) {
-            throw new IllegalArgumentException(
-                    "Replay engine cannot be null"
-            );
-        }
+    public ReplayController(VirtualClock clock, List<Event> events) {
 
         if (clock == null) {
             throw new IllegalArgumentException(
@@ -38,8 +27,6 @@ public class ReplayController {
                     "Events cannot be null"
             );
         }
-
-        this.replayEngine = replayEngine;
         this.clock = clock;
         this.events = List.copyOf(events);
         this.currentIndex = 0;
@@ -106,6 +93,8 @@ public class ReplayController {
 
     public void reset() {
         currentIndex = 0;
+         paused = false;
+        status = ReplayStatus.READY;
     }
 
     public int currentIndex() {

@@ -317,4 +317,247 @@ void marketOrderWaitsUntilPriceExists() {
             events.get(0) instanceof OrderSubmitted
     );
 }
+
+@Test
+void zeroMarketVolumeDoesNotFillOrder() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus eventBus = new EventBus();
+    LiveEventPipeline pipeline = new LiveEventPipeline(store, eventBus);
+
+    MatchingEngine matchingEngine = new MatchingEngine(pipeline);
+    eventBus.subscribe(matchingEngine);
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    pipeline.publish(new OrderSubmitted(
+                    pipeline.nextSequence(),
+                    time,
+                    "ORD-001",
+                    "AAPL",
+                    Side.BUY,
+                    100,
+                    OrderType.MARKET,
+                    null));
+
+    pipeline.publish(new PriceUpdate(
+                    pipeline.nextSequence(),
+                    time,
+                    "AAPL",
+                    new BigDecimal("100.00"),
+                    0));
+
+    List<Event> events = store.getAll();
+
+    assertEquals(3, events.size());
+
+    assertTrue(events.get(1) instanceof OrderAccepted);
+
+    assertFalse(
+            events.stream().anyMatch(event ->event instanceof OrderFilled || event instanceof OrderPartiallyFilled)
+    );
+}
+
+@Test
+void ordersForDifferentSymbolsDoNotInterfere() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus eventBus = new EventBus();
+    LiveEventPipeline pipeline = new LiveEventPipeline(store, eventBus);
+
+    MatchingEngine matchingEngine = new MatchingEngine(pipeline);
+
+    eventBus.subscribe(matchingEngine);
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    // AAPL order comes before any price
+    pipeline.publish(new OrderSubmitted(
+            pipeline.nextSequence(),
+            time,
+            "AAPL-001",
+            "AAPL",
+            Side.BUY,
+            100,
+            OrderType.MARKET,
+            null));
+
+    // GOOG gets price yay
+    pipeline.publish(new PriceUpdate(
+            pipeline.nextSequence(),
+            time,
+            "GOOG",
+            new BigDecimal("200.00"),
+            100));
+
+    // AAPL order still pending here
+    assertFalse(store.getAll().stream().anyMatch(event ->event instanceof OrderFilled|| event instanceof OrderPartiallyFilled));
+
+    // AAPL gets price yay
+    pipeline.publish(new PriceUpdate(
+            pipeline.nextSequence(),
+            time,
+            "AAPL",
+            new BigDecimal("100.00"),
+            100));
+
+    List<Event> events = store.getAll();
+
+    assertTrue(events.stream().anyMatch(event ->event instanceof OrderFilled filled && filled.orderId().equals("AAPL-001")));
+}
+
+@Test
+void partialFillIsCompletedByLaterPriceUpdate() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus eventBus = new EventBus();
+    LiveEventPipeline pipeline =
+            new LiveEventPipeline(store, eventBus);
+
+    MatchingEngine matchingEngine =
+            new MatchingEngine(pipeline);
+
+    eventBus.subscribe(matchingEngine);
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    // 100share order
+    pipeline.publish(new OrderSubmitted(
+            pipeline.nextSequence(),
+            time,
+            "ORD-001",
+            "AAPL",
+            Side.BUY,
+            100,
+            OrderType.MARKET,
+            null));
+
+    // only 40 shares available
+    pipeline.publish(new PriceUpdate(
+            pipeline.nextSequence(),
+            time,
+            "AAPL",
+            new BigDecimal("100.00"),
+            40));
+
+    List<Event> eventsAfterPartialFill = store.getAll();
+
+    assertTrue(eventsAfterPartialFill.stream()
+                    .anyMatch(event ->
+                            event instanceof OrderPartiallyFilled partial
+                                    && partial.orderId().equals("ORD-001")
+                                    && partial.filledQuantity() == 40));
+
+    // 60 shares available
+    pipeline.publish(new PriceUpdate(
+            pipeline.nextSequence(),
+            time,
+            "AAPL",
+            new BigDecimal("101.00"),
+            60));
+
+    List<Event> events = store.getAll();
+
+    assertTrue(events.stream()
+                    .anyMatch(event ->
+                            event instanceof OrderFilled filled
+                                    && filled.orderId().equals("ORD-001")
+                                    && filled.filledQuantity() == 60
+                                    && filled.fillPrice()
+                                            .equals(new BigDecimal("101.00")))
+        );
+}
+
+@Test
+void negativeMarketVolumeIsRejected() {
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus eventBus = new EventBus();
+    LiveEventPipeline pipeline = new LiveEventPipeline(store, eventBus);
+
+    MatchingEngine matchingEngine = new MatchingEngine(pipeline);
+
+    eventBus.subscribe(matchingEngine);
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    assertThrows(
+            IllegalArgumentException.class,
+            () -> pipeline.publish(new PriceUpdate(
+                    pipeline.nextSequence(),
+                    time,
+                    "AAPL",
+                    new BigDecimal("100.00"),
+                    -10
+            )));
+}
+
+@Test
+void multipleOrdersShareAvailableLiquidityInFifoOrder() {
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus eventBus = new EventBus();
+    LiveEventPipeline pipeline = new LiveEventPipeline(store, eventBus);
+
+    MatchingEngine matchingEngine = new MatchingEngine(pipeline);
+
+    eventBus.subscribe(matchingEngine);
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    // first order- 70 shares
+    pipeline.publish(new OrderSubmitted(
+            pipeline.nextSequence(),
+            time,
+            "ORD-001",
+            "AAPL",
+            Side.BUY,
+            70,
+            OrderType.MARKET,
+            null));
+
+    // second order- 50 shares
+    pipeline.publish(new OrderSubmitted(
+            pipeline.nextSequence(),
+            time,
+            "ORD-002",
+            "AAPL",
+            Side.BUY,
+            50,
+            OrderType.MARKET,
+            null));
+
+    // 100 shares become available
+    pipeline.publish(new PriceUpdate(
+            pipeline.nextSequence(),
+            time,
+            "AAPL",
+            new BigDecimal("100.00"),
+            100));
+
+    List<Event> events = store.getAll();
+
+    List<OrderFilled> fills = events.stream()
+            .filter(event -> event instanceof OrderFilled)
+            .map(event -> (OrderFilled) event)
+            .toList();
+
+    List<OrderPartiallyFilled> partialFills = events.stream()
+            .filter(event -> event instanceof OrderPartiallyFilled)
+            .map(event -> (OrderPartiallyFilled) event)
+            .toList();
+
+    // first order gets full 70
+    assertTrue(
+            fills.stream()
+                    .anyMatch(fill ->
+                            fill.orderId().equals("ORD-001")
+                                    && fill.filledQuantity() == 70));
+
+    // second order gets 30
+    assertTrue(
+            partialFills.stream()
+                    .anyMatch(partial ->
+                            partial.orderId().equals("ORD-002")
+                                    && partial.filledQuantity() == 30));
+}
+
 }

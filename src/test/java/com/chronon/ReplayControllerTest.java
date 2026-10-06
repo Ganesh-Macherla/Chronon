@@ -3,7 +3,6 @@ package com.chronon;
 import com.chronon.clock.VirtualClock;
 import com.chronon.event.PriceUpdate;
 import com.chronon.replay.ReplayController;
-import com.chronon.replay.ReplayEngine;
 import com.chronon.replay.ReplayStatus;
 import com.chronon.store.InMemoryEventStore;
 import org.junit.jupiter.api.Test;
@@ -51,10 +50,8 @@ class ReplayControllerTest {
 
         ReplayController controller =
                 new ReplayController(
-                        new ReplayEngine(store),
                         clock,
-                        store.getAll()
-                );
+                        store.getAll());
 
         List<Long> received =
                 new ArrayList<>();
@@ -104,7 +101,6 @@ class ReplayControllerTest {
 
         ReplayController controller =
                 new ReplayController(
-                        new ReplayEngine(store),
                         clock,
                         store.getAll()
                 );
@@ -152,7 +148,6 @@ void startReplaysAllEvents() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -215,7 +210,6 @@ void pauseStopsReplayAndResumeContinues() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -293,7 +287,6 @@ void resumeDoesNotAdvanceReplayByItself() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -328,7 +321,6 @@ void startTransitionsToCompleted() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -369,7 +361,6 @@ void pauseTransitionsToPaused() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -405,7 +396,6 @@ void resumeTransitionsToRunning() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -458,7 +448,6 @@ void replayLifecycleTransitionsCorrectly() {
 
     ReplayController controller =
             new ReplayController(
-                    new ReplayEngine(store),
                     clock,
                     store.getAll()
             );
@@ -494,4 +483,49 @@ void replayLifecycleTransitionsCorrectly() {
             controller.currentIndex()
     );
 }
+
+@Test
+void resetReturnsControllerToReadyState() {
+
+    InMemoryEventStore store =
+            new InMemoryEventStore();
+
+    store.append(
+            new PriceUpdate(
+                    1,
+                    Instant.parse("2026-08-13T09:30:00Z"),
+                    "AAPL",
+                    new BigDecimal("100.00"),
+                    100
+            )
+    );
+
+    VirtualClock clock =
+            new VirtualClock(
+                    Instant.parse("2026-08-13T09:29:00Z")
+            );
+
+    ReplayController controller =
+            new ReplayController(
+                    clock,
+                    store.getAll());
+
+    controller.start(event -> {});
+
+    assertEquals(
+            ReplayStatus.COMPLETED,
+            controller.status()
+    );
+
+    controller.reset();
+
+    assertEquals(
+            ReplayStatus.READY,
+            controller.status()
+    );
+
+    assertTrue(controller.hasNext());
+    assertEquals(0, controller.currentIndex());
+}
+
 }

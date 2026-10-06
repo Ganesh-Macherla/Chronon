@@ -11,6 +11,10 @@ import com.chronon.order.Side;
 import com.chronon.store.InMemoryEventStore;
 import com.chronon.strategy.MovingAverageStrategy;
 import com.chronon.strategy.StrategyEngine;
+import com.chronon.matching.MatchingEngine;
+import com.chronon.order.OrderState;
+import com.chronon.order.OrderStateProjector;
+import com.chronon.order.OrderStatus;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -148,4 +152,83 @@ class StrategyEngineTest {
                 100
         );
     }
+
+@Test
+void strategyOrderMatchingAndStateProjectionWorkEndToEnd() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+    EventBus bus = new EventBus();
+
+    LiveEventPipeline pipeline = new LiveEventPipeline(store, bus);
+
+    MovingAverageStrategy strategy = new MovingAverageStrategy(2, 4);
+
+    StrategyEngine strategyEngine = new StrategyEngine("moving-average", strategy, pipeline);
+
+    MatchingEngine matchingEngine = new MatchingEngine(pipeline);
+
+    
+    OrderStateProjector orderStateProjector = new OrderStateProjector();
+
+    bus.subscribe(orderStateProjector);
+    bus.subscribe(matchingEngine);
+    bus.subscribe(strategyEngine);
+
+    pipeline.publish(price(pipeline.nextSequence(), "100"));
+    pipeline.publish(price(pipeline.nextSequence(), "101"));
+    pipeline.publish(price(pipeline.nextSequence(), "102"));
+    pipeline.publish(price(pipeline.nextSequence(), "104"));
+    List<Event> events = store.getAll();
+    assertTrue(
+            events.stream()
+                    .anyMatch(event ->
+                            event instanceof StrategyDecision
+                                    && ((StrategyDecision) event)
+                                    .action()
+                                    .name()
+                                    .equals("BUY")));
+
+    OrderSubmitted order =
+            events.stream()
+                    .filter(event -> event instanceof OrderSubmitted)
+                    .map(event -> (OrderSubmitted) event)
+                    .findFirst()
+                    .orElseThrow();
+
+    assertEquals("AAPL", order.symbol());
+    assertEquals(Side.BUY, order.side());
+    assertEquals(100, order.quantity());
+    assertEquals(OrderType.MARKET, order.orderType());
+    assertTrue(events.stream()
+                    .anyMatch(event ->
+                            event instanceof com.chronon.event.OrderAccepted
+                                    && ((com.chronon.event.OrderAccepted) event)
+                                    .orderId()
+                                    .equals(order.orderId())));
+
+    assertTrue(
+            events.stream()
+                    .anyMatch(event ->
+                            event instanceof com.chronon.event.OrderFilled
+                                    && ((com.chronon.event.OrderFilled) event)
+                                    .orderId()
+                                    .equals(order.orderId())
+                                    && ((com.chronon.event.OrderFilled) event)
+                                    .filledQuantity() == 100));
+
+    // verify final reconstructed livestate
+    OrderState state = orderStateProjector.getState(order.orderId());
+
+    assertNotNull(state);
+
+    assertEquals(OrderStatus.FILLED, state.status());
+
+    assertEquals(100, state.filledQuantity());
+
+    assertEquals(0, state.remainingQuantity());
+
+    assertEquals(new BigDecimal("104"), state.averageFillPrice());
+
+}
+
 }
