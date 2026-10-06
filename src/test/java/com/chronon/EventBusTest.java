@@ -78,4 +78,49 @@ class EventBusTest {
                 () -> bus.publish(null)
         );
     }
+
+    @Test
+    void nestedEventsAreProcessedImmediately() {
+
+        EventBus bus = new EventBus();
+
+        List<String> order = new ArrayList<>();
+
+        EventListener secondListener = event ->
+                order.add("second:" + event.sequence());
+
+        EventListener firstListener = event -> {
+            order.add("first:" + event.sequence());
+
+            if (event.sequence() == 1) {
+                bus.publish(
+                        new PriceUpdate(
+                                2,
+                                event.timestamp(),
+                                "AAPL",
+                                new BigDecimal("211.40"),
+                              500
+                        )
+                );
+            }
+        };
+
+        bus.subscribe(firstListener);
+        bus.subscribe(secondListener);
+
+        PriceUpdate firstEvent = new PriceUpdate(
+                1,
+                Instant.parse("2026-08-13T09:30:00Z"),
+                "AAPL",
+                new BigDecimal("210.40"),
+                500
+        );
+
+        bus.publish(firstEvent);
+
+        assertEquals(
+                List.of("first:1", "first:2", "second:2", "second:1"),
+                order
+        );
+    }
 }
