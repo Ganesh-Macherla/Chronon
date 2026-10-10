@@ -530,4 +530,116 @@ void replayProducesDeterministicResult() {
     assertEquals(firstState, secondState);
 }
 
+@Test
+void stateAtReconstructsStateThroughRequestedSequence() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    store.append(new OrderSubmitted(
+            1,
+            time,
+            "ORD-001",
+            "AAPL",
+            Side.BUY,
+            100,
+            OrderType.MARKET,
+            null
+    ));
+
+    store.append(new OrderAccepted(
+            2,
+            time,
+            "ORD-001"
+    ));
+
+    store.append(new OrderPartiallyFilled(
+            3,
+            time,
+            "ORD-001",
+            40,
+            new BigDecimal("100.00")
+    ));
+
+    store.append(new OrderFilled(
+            4,
+            time,
+            "ORD-001",
+            60,
+            new BigDecimal("110.00")
+    ));
+
+    ReplayEngine replayEngine = new ReplayEngine(store);
+    OrderStateReducer reducer = new OrderStateReducer();
+
+    Map<String, OrderState> states =
+            replayEngine.stateAt(
+                    3,
+                    Map.of(),
+                    reducer
+            );
+
+    OrderState state = states.get("ORD-001");
+
+    assertNotNull(state);
+    assertEquals(OrderStatus.PARTIALLY_FILLED, state.status());
+    assertEquals(40, state.filledQuantity());
+    assertEquals(60, state.remainingQuantity());
+    assertEquals(new BigDecimal("100.00"), state.averageFillPrice());
+}
+
+@Test
+void stateAtZeroReturnsInitialState() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+
+    ReplayEngine replayEngine = new ReplayEngine(store);
+
+    OrderStateReducer reducer = new OrderStateReducer();
+
+    Map<String, OrderState> initialState = Map.of();
+
+    Map<String, OrderState> state =
+            replayEngine.stateAt(
+                    0,
+                    initialState,
+                    reducer
+            );
+
+    assertEquals(initialState, state);
+}
+
+@Test
+void stateAtDoesNotModifyEventStore() {
+
+    InMemoryEventStore store = new InMemoryEventStore();
+
+    Instant time = Instant.parse("2026-08-13T09:30:00Z");
+
+    store.append(new OrderSubmitted(
+            1,
+            time,
+            "ORD-001",
+            "AAPL",
+            Side.BUY,
+            100,
+            OrderType.MARKET,
+            null
+    ));
+
+    ReplayEngine replayEngine = new ReplayEngine(store);
+
+    OrderStateReducer reducer = new OrderStateReducer();
+
+    replayEngine.stateAt(
+            1,
+            Map.of(),
+            reducer
+    );
+
+    assertEquals(1, store.size());
+    assertEquals(1, store.getAll().get(0).sequence());
+}
+
 }

@@ -101,4 +101,32 @@ public class ReplayEngine {
 
         return state;
     }
+    public <S> S stateAt(
+        long sequence,
+        S initialState,
+        StateReducer<S> reducer
+) {
+    if (sequence < 0) {
+        throw new IllegalArgumentException(
+                "Sequence cannot be negative"
+        );
+    }
+
+    if (reducer == null) {
+        throw new IllegalArgumentException(
+                "State reducer cannot be null"
+        );
+    }
+
+    if (sequence == 0) {
+        return initialState;
+    }
+
+    return reconstructRange(
+            1,
+            sequence,
+            initialState,
+            reducer
+    );
+}
 }
