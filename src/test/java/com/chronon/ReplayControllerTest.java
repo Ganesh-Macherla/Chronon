@@ -528,4 +528,77 @@ void resetReturnsControllerToReadyState() {
     assertEquals(0, controller.currentIndex());
 }
 
+@Test
+void runUntilProcessesEventsThroughRequestedSequence() {
+    InMemoryEventStore store = new InMemoryEventStore();
+    Instant start = Instant.parse("2026-08-13T09:30:00Z");
+
+    for (int i = 1; i <= 5; i++) {
+        store.append(new PriceUpdate(
+                i,
+                start.plusSeconds(i),
+                "AAPL",
+                BigDecimal.valueOf(100 + i),
+                100
+        ));
+    }
+
+    VirtualClock clock = new VirtualClock(start);
+    ReplayController controller =
+            new ReplayController(clock, store.getAll());
+
+    List<Long> received = new ArrayList<>();
+
+    controller.runUntil(3, event -> received.add(event.sequence()));
+
+    assertEquals(List.of(1L, 2L, 3L), received);
+    assertEquals(3, controller.currentIndex());
+    assertEquals(start.plusSeconds(3), clock.now());
+    assertTrue(controller.hasNext());
+}
+
+@Test
+void runUntilRejectsNegativeSequence() {
+    InMemoryEventStore store = new InMemoryEventStore();
+    Instant start = Instant.parse("2026-08-13T09:30:00Z");
+
+    ReplayController controller = new ReplayController(
+            new VirtualClock(start),
+            store.getAll()
+    );
+
+    assertThrows(
+            IllegalArgumentException.class,
+            () -> controller.runUntil(-1, event -> {})
+    );
+}
+
+@Test
+void runUntilRejectsSequenceBeyondLastEvent() {
+    InMemoryEventStore store = new InMemoryEventStore();
+    Instant start = Instant.parse("2026-08-13T09:30:00Z");
+
+    for (int i = 1; i <= 3; i++) {
+        store.append(new PriceUpdate(
+                i,
+                start.plusSeconds(i),
+                "AAPL",
+                BigDecimal.valueOf(100 + i),
+                100
+        ));
+
+        }
+
+    ReplayController controller = new ReplayController(
+            new VirtualClock(start),
+            store.getAll());
+
+    assertThrows(
+            IllegalArgumentException.class,
+            () -> controller.runUntil(10, event -> {}));
+
+    assertEquals(0, controller.currentIndex());
+    assertTrue(controller.hasNext());
+}
+
 }

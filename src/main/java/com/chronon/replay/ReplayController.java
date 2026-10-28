@@ -7,6 +7,7 @@ import com.chronon.event.Event;
 import java.util.List;
 
 public class ReplayController {
+
     private final VirtualClock clock;
     private final List<Event> events;
 
@@ -27,6 +28,7 @@ public class ReplayController {
                     "Events cannot be null"
             );
         }
+
         this.clock = clock;
         this.events = List.copyOf(events);
         this.currentIndex = 0;
@@ -76,16 +78,16 @@ public class ReplayController {
         if (!hasNext()) {
             status = ReplayStatus.COMPLETED;
         }
-    }    
+    }
 
-        public void pause() {
+    public void pause() {
         paused = true;
         status = ReplayStatus.PAUSED;
-
     }
-    
+
     public void resume() {
         paused = false;
+
         if (hasNext()) {
             status = ReplayStatus.RUNNING;
         }
@@ -93,7 +95,7 @@ public class ReplayController {
 
     public void reset() {
         currentIndex = 0;
-         paused = false;
+        paused = false;
         status = ReplayStatus.READY;
     }
 
@@ -105,4 +107,35 @@ public class ReplayController {
         return status;
     }
 
+
+
+public void runUntil(long sequence, EventListener listener) {
+    if (sequence < 0) {
+        throw new IllegalArgumentException(
+                "Sequence cannot be negative"
+        );
+    }
+
+    if (listener == null) {
+        throw new IllegalArgumentException(
+                "Listener cannot be null"
+        );
+    }
+
+    if (!events.isEmpty()
+            && sequence > events.get(events.size() - 1).sequence()) {
+        throw new IllegalArgumentException(
+                "Sequence exceeds the last available event"
+        );
+    }
+
+    while (hasNext()
+            && events.get(currentIndex).sequence() <= sequence) {
+        step(listener);
+    }
+
+    if (!hasNext()) {
+        status = ReplayStatus.COMPLETED;
+    }
+}
 }
