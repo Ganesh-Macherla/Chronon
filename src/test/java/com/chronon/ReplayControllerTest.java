@@ -600,5 +600,24 @@ void runUntilRejectsSequenceBeyondLastEvent() {
     assertEquals(0, controller.currentIndex());
     assertTrue(controller.hasNext());
 }
+@Test
+void runUntilWithEmptyEventListCompletesCleanly() {
+    Instant start = Instant.parse("2026-08-13T09:30:00Z");
+
+    ReplayController controller = new ReplayController(
+            new VirtualClock(start),
+            List.of()
+    );
+
+    List<Long> received = new ArrayList<>();
+
+    controller.runUntil(1, event -> received.add(event.sequence()));
+
+    assertTrue(received.isEmpty());
+    assertEquals(0, controller.currentIndex());
+    assertFalse(controller.hasNext());
+    assertEquals(ReplayStatus.COMPLETED, controller.status());
+}
+
 
 }
